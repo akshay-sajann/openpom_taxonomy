@@ -7,6 +7,7 @@ from tqdm import tqdm
 import deepchem as dc
 from datetime import datetime
 from openpom.models.mpnn_pom import MPNNPOMModel
+from skmultilearn.model_selection import IterativeStratification
 from openpom.feat.graph_featurizer import GraphFeaturizer, GraphConvConstants
 from openpom.utils.data_utils import get_class_imbalance_ratio
 from openpom.hyper.configs.model_configs import MPNNPOMConfig
@@ -97,16 +98,23 @@ class CV:
         self.n_folds = n_folds
         self.device = device
 
+    def _skmultilearn_splitter(self, dataset):
+        split_list = []
+        stratifier = IterativeStratification(n_splits=self.n_folds, order=2)
+        for train, test in stratifier.split(dataset.X, dataset.y):
+            split_list.append((dataset.select(train), dataset.select(test)))
+        return split_list
+
     def _deepchem_splitter(self, dataset):
         randomstratifiedsplitter = dc.splits.RandomStratifiedSplitter()
         return randomstratifiedsplitter.k_fold_split(dataset=dataset,
                                                      k=self.n_folds)
 
-    def generate_folds(self, dataset, splitter='deepchem'):
+    def generate_folds(self, dataset, splitter='skmultilearn'):
         if splitter == 'deepchem':
             self.folds_list = self._deepchem_splitter(dataset)
         elif splitter == 'skmultilearn':
-            raise NotImplementedError
+            self.folds_list = self._skmultilearn_splitter(dataset)
         return self.folds_list
 
     def cross_validation(self,
@@ -332,3 +340,35 @@ if __name__ == "__main__":
                      logdir=logdir,
                      max_epoch=max_epoch,
                      save_best_ckpt=save_best_ckpt)
+
+
+def bayes_search_cv(tasks=TASKS,
+                    dataset=DATASET,
+                    smiles_field=SMILES_FIELD,
+                    n_folds=2,
+                    n_trials=1,
+                    logdir='./models',
+                    max_epoch=10,
+                    save_best_ckpt=False):
+    
+    # get dataset
+    featurizer = GraphFeaturizer()
+    smiles_field = smiles_field
+    loader = dc.data.CSVLoader(tasks=tasks,
+                               feature_field=smiles_field,
+                               featurizer=featurizer)
+    input_file = dataset
+    dataset = loader.create_dataset(inputs=[input_file])
+    n_tasks = len(dataset.tasks)
+    n_folds = n_folds
+    n_trials = n_trials
+    logdir = logdir
+    max_epoch = max_epoch
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Metric
+    metric = dc.metrics.Metric(dc.metrics.roc_auc_score)
+
+    
+    
+    pass
